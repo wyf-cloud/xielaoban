@@ -1,0 +1,584 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>标书拯救者</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      body, html, #root {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden; 
+      }
+
+      @keyframes ping_slow_once {
+        0%, 100% { transform: scale(1); opacity: 0; }
+        10%, 80% { transform: scale(1.2); opacity: 1; }
+      }
+      .animate-ping_slow_once {
+        animation: ping_slow_once 0.7s cubic-bezier(0, 0, 0.2, 1) forwards;
+      }
+
+      @keyframes typing-bob {
+        0%, 100% { transform: translateY(0) translateX(-50%); }
+        50% { transform: translateY(-2px) translateX(-50%); }
+      }
+      .animate-typing-bob {
+        animation: typing-bob 1s infinite ease-in-out;
+      }
+
+      @keyframes shake {
+        0%, 100% { transform: translateX(-50%) translateY(-50%) rotate(0deg); }
+        10%, 30%, 50%, 70%, 90% { transform: translateX(-50%) translateY(-50%) rotate(-2deg); }
+        20%, 40%, 60%, 80% { transform: translateX(-50%) translateY(-50%) rotate(2deg); }
+      }
+      .animate-shake {
+        animation: shake 0.3s linear;
+      }
+
+      @keyframes screen-pulse-effect {
+        0%, 100% { opacity: 0.7; }
+        50% { opacity: 1; }
+      }
+      .animate-screen-pulse {
+        animation: screen-pulse-effect 1.5s infinite cubic-bezier(0.4, 0, 0.6, 1);
+      }
+
+      /* Boss Animations - 'left' values now target the center due to translate(-50%) */
+      @keyframes boss-enter-left {
+        from { left: -150px; opacity: 0; } 
+        to { left: 15%; opacity: 1; } 
+      }
+      .animate-boss-enter-left { animation: boss-enter-left 1s ease-out forwards; }
+
+      @keyframes boss-enter-right {
+        from { left: calc(100% + 150px); opacity: 0; }
+        to { left: 85%; opacity: 1; } 
+      }
+      .animate-boss-enter-right { animation: boss-enter-right 1s ease-out forwards; }
+      
+      @keyframes boss-exit-left {
+        from { left: 15%; opacity: 1; }
+        to { left: -150px; opacity: 0; }
+      }
+      .animate-boss-exit-left { animation: boss-exit-left 1s ease-in forwards; }
+
+      @keyframes boss-exit-right {
+        from { left: 85%; opacity: 1; }
+        to { left: calc(100% + 150px); opacity: 0; }
+      }
+      .animate-boss-exit-right { animation: boss-exit-right 1s ease-in forwards; }
+
+
+      @keyframes boss-scold-shake {
+        0%, 100% { transform: translate(-50%, -50%) rotate(0deg); }
+        25% { transform: translate(-50%, -50%) rotate(-2deg); }
+        75% { transform: translate(-50%, -50%) rotate(2deg); }
+      }
+      .animate-boss-scold-shake {
+        animation: boss-scold-shake 0.3s linear infinite;
+      }
+
+      @keyframes speech-bubble-appear {
+        from { opacity: 0; transform: translateY(10px) scale(0.9); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
+      }
+      .animate-speech-bubble-appear {
+        animation: speech-bubble-appear 0.3s ease-out forwards;
+      }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@19.1.0",
+    "react-dom/client": "https://esm.sh/react-dom@19.1.0/client",
+    "react-dom/": "https://esm.sh/react-dom@^19.1.0/",
+    "react/": "https://esm.sh/react@^19.1.0/"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body>
+    <noscript>你需要启用 JavaScript 来运行此应用。</noscript>
+    <div id="root"></div>
+
+    <script type="module">
+      import React, { useState, useEffect, useCallback, memo, useRef } from 'react';
+      import ReactDOM from 'react-dom/client';
+
+      // --- From types.ts ---
+      const GameStatus = {
+        Idle: 'idle',
+        Setup: 'setup',
+        Playing: 'playing',
+        Won: 'won',
+        Lost: 'lost',
+      };
+
+      const DifficultyLevel = {
+        Easy: 'easy',
+        Normal: 'normal',
+        Hard: 'hard',
+      };
+
+      // --- DIFFICULTY_SETTINGS definition ---
+      const DIFFICULTY_SETTINGS = {
+        [DifficultyLevel.Easy]: {
+          initialTime: 180, 
+          baseProgress: 2.0,
+          biteSlowdown: 0.7,
+          mosquitoSpawnInitial: 2200,
+          mosquitoSpawnMin: 1000,
+          mosquitoSpeed: 1.2,
+          bossSpawnChance: 0.08, 
+          bossScoldFactor: 0.8, 
+          bossDuration: 15000, 
+          bossScoldStartDelay: 2000,
+        },
+        [DifficultyLevel.Normal]: {
+          initialTime: 120, 
+          baseProgress: 1.5,
+          biteSlowdown: 0.5,
+          mosquitoSpawnInitial: 1500,
+          mosquitoSpawnMin: 600,
+          mosquitoSpeed: 1.5,
+          bossSpawnChance: 0.15, 
+          bossScoldFactor: 0.6,
+          bossDuration: 12000,
+          bossScoldStartDelay: 1500,
+        },
+        [DifficultyLevel.Hard]: {
+          initialTime: 90, 
+          baseProgress: 1.2,
+          biteSlowdown: 0.3,
+          mosquitoSpawnInitial: 1000,
+          mosquitoSpawnMin: 400,
+          mosquitoSpeed: 1.8,
+          bossSpawnChance: 0.25, 
+          bossScoldFactor: 0.4, 
+          bossDuration: 10000,
+          bossScoldStartDelay: 1000,
+        },
+      };
+
+      // --- TimerDisplay.tsx ---
+      const TimerDisplay = ({ timeLeft }) => {
+        const minutes = Math.floor(timeLeft / 60);
+        const seconds = timeLeft % 60;
+        const timeClass = `font-mono text-lg ${timeLeft <= 10 ? 'text-red-400 animate-pulse' : 'text-green-300'}`;
+        return React.createElement('div', { className: timeClass },
+          `剩余时间: ${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+        );
+      };
+
+      // --- ProgressBar.tsx ---
+      const ProgressBar = ({ progress }) => {
+        const displayProgress = Math.max(0, Math.min(100, progress));
+        return React.createElement('div', { className: "mt-3" },
+          React.createElement('div', { className: "flex justify-between mb-1" },
+            React.createElement('span', { className: "text-sm font-medium text-sky-200" }, "标书进度"),
+            React.createElement('span', { className: "text-sm font-medium text-sky-200" }, `${Math.round(displayProgress)}%`)
+          ),
+          React.createElement('div', { className: "w-full bg-slate-600 rounded-full h-4 md:h-5 shadow-inner" },
+            React.createElement('div', {
+              className: "bg-gradient-to-r from-sky-500 to-cyan-400 h-4 md:h-5 rounded-full transition-all duration-150 ease-linear",
+              style: { width: `${displayProgress}%` },
+              'aria-valuenow': displayProgress,
+              'aria-valuemin': 0,
+              'aria-valuemax': 100,
+              role: "progressbar",
+              'aria-label': "标书进度"
+            })
+          )
+        );
+      };
+
+      // --- TenderWriter.tsx ---
+      const TenderWriter = ({ playerName, position, isBitten, isTyping }) => {
+        const writerBaseClasses = "absolute transform -translate-x-1/2 -translate-y-1/2 p-2 transition-all duration-200";
+        const writerAnimationClasses = `${isTyping ? 'animate-typing-bob' : ''} ${isBitten ? 'animate-shake' : ''}`;
+        const typingText = isTyping ? `${playerName} 撰写中...` : '已完成!';
+
+        return React.createElement('div', {
+            className: `${writerBaseClasses} ${writerAnimationClasses}`,
+            style: { left: `${position.x}%`, top: `${position.y}%`, zIndex: 20 }
+          },
+          React.createElement('div', { className: "bg-slate-200/70 p-3 rounded-lg shadow-lg w-28 h-36 md:w-32 md:h-40 relative backdrop-blur-sm" },
+            React.createElement('div', { className: `absolute top-2 left-1/2 -translate-x-1/2 w-10 h-10 md:w-12 md:h-12 bg-pink-300 rounded-full border-2 border-slate-700` }),
+            React.createElement('div', { className: `absolute top-10 left-1/2 -translate-x-1/2 w-16 h-20 md:w-20 md:h-24 bg-blue-500 rounded-md border-2 border-slate-700` }),
+            React.createElement('div', { className: "absolute bottom-[-15px] left-1/2 -translate-x-1/2 w-36 h-10 md:w-40 bg-yellow-700 rounded-t-md border-2 border-slate-800 shadow-md" }),
+            React.createElement('div', { className: "absolute bottom-[10px] left-1/2 -translate-x-1/2 w-20 h-16 md:w-24 md:h-20 bg-slate-800 rounded-sm border-2 border-slate-500 flex items-center justify-center p-1" },
+              React.createElement('div', { className: `w-full h-full bg-sky-200 ${isTyping ? 'animate-screen-pulse' : ''} text-xs text-slate-900 p-1 overflow-hidden flex items-center justify-center font-semibold` },
+                typingText
+              )
+            ),
+            isBitten && React.createElement('div', { className: "absolute -top-6 left-1/2 -translate-x-1/2 bg-red-500 text-white text-xs px-2 py-1 rounded-full shadow-lg animate-ping_slow_once" }, "哎哟!")
+          )
+        );
+      };
+      
+      // --- Mosquito.tsx ---
+      const MosquitoComponent = memo(({ mosquito, onSwat, onReachTarget, targetPosition, targetRadius, speed }) => {
+        const [currentPosition, setCurrentPosition] = useState({ x: mosquito.x, y: mosquito.y });
+        const MOSQUITO_WIGGLE_FACTOR = 0.5; 
+
+        useEffect(() => {
+          if (mosquito.isSwatted) return; 
+          const moveInterval = setInterval(() => {
+            setCurrentPosition(prevPos => {
+              const dx = targetPosition.x - prevPos.x;
+              const dy = targetPosition.y - prevPos.y;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+              if (dist < targetRadius) {
+                onReachTarget(mosquito.id); 
+                clearInterval(moveInterval); 
+                return prevPos; 
+              }
+              const wiggleX = (Math.random() - 0.5) * MOSQUITO_WIGGLE_FACTOR * speed * 5;
+              const wiggleY = (Math.random() - 0.5) * MOSQUITO_WIGGLE_FACTOR * speed * 5;
+              const moveX = (dx / dist) * speed + wiggleX;
+              const moveY = (dy / dist) * speed + wiggleY;
+              return { x: prevPos.x + moveX, y: prevPos.y + moveY };
+            });
+          }, 30); 
+          return () => clearInterval(moveInterval);
+        }, [mosquito.id, mosquito.isSwatted, onReachTarget, targetPosition.x, targetPosition.y, targetRadius, speed]);
+
+        const liveMosquitoContent = React.createElement('svg', { viewBox: "0 0 100 100", xmlns: "http://www.w3.org/2000/svg", className: "w-full h-full", fill: "black" },
+          React.createElement('ellipse', { cx: "50", cy: "50", rx: "15", ry: "25", fill: "#333" }),
+          React.createElement('circle', { cx: "50", cy: "25", r: "10", fill: "#222" }),
+          React.createElement('ellipse', { cx: "30", cy: "45", rx: "25", ry: "10", transform: "rotate(-20 30 45)", fill: "rgba(0,0,0,0.3)" }),
+          React.createElement('ellipse', { cx: "70", cy: "45", rx: "25", ry: "10", transform: "rotate(20 70 45)", fill: "rgba(0,0,0,0.3)" }),
+          React.createElement('line', { x1: "40", y1: "60", x2: "20", y2: "70", stroke: "#111", strokeWidth: "3" }),
+          React.createElement('line', { x1: "40", y1: "70", x2: "20", y2: "85", stroke: "#111", strokeWidth: "3" }),
+          React.createElement('line', { x1: "60", y1: "60", x2: "80", y2: "70", stroke: "#111", strokeWidth: "3" }),
+          React.createElement('line', { x1: "60", y1: "70", x2: "80", y2: "85", stroke: "#111", strokeWidth: "3" }),
+          React.createElement('line', { x1: "50", y1: "15", x2: "50", y2: "0", stroke: "#111", strokeWidth: "3" })
+        );
+        const swattedMosquitoContent = React.createElement('div', { className: "absolute inset-0 flex items-center justify-center" },
+          React.createElement('svg', { xmlns: "http://www.w3.org/2000/svg", viewBox: "0 0 24 24", fill: "rgba(200, 38, 38, 0.95)", className: "w-12 h-12" },
+            React.createElement('path', { d: "M15.901 8.086a.75.75 0 00-1.06-1.06L12 9.879l-2.84-2.853a.75.75 0 10-1.061 1.06L10.939 12l-2.853 2.84a.75.75 0 001.06 1.061L12 13.061l2.84 2.853a.75.75 0 101.061-1.06L13.061 12l2.84-2.854zM2.193 8.617a10.423 10.423 0 01-.159-1.281A10.453 10.453 0 011.51 4.82a1.51 1.51 0 012.036-1.15c.44.198.832.457 1.185.765C5.594 3.64 6.36 3.056 7.216 2.61c.492-.254 1.01-.437 1.548-.55A10.45 10.45 0 0112.001 2c1.565 0 3.076.344 4.438.97.506.21 1 .485 1.442.818.93.702 1.524 1.468 1.93 2.332.21.457.353.93.434 1.419a10.453 10.453 0 010 3.038 11.75 11.75 0 01-.434 1.42c-.406.863-.999 1.63-1.93 2.331a4.14 4.14 0 01-1.442.818A10.45 10.45 0 0112.001 22a10.45 10.45 0 01-3.237-.56c-.538-.113-1.056-.296-1.548-.55-.855-.446-1.622-1.03-2.483-1.826-.353-.308-.746-.567-1.185-.765a1.51 1.51 0 01-1.15-2.036c.11-.59.154-1.185.159-1.781a10.428 10.428 0 00-.159-1.281l-.001-.001z" })
+          )
+        );
+        return React.createElement('div', {
+          className: "absolute w-14 h-14 transform -translate-x-1/2 -translate-y-1/2 cursor-pointer drop-shadow-lg",
+          style: { 
+            left: `${currentPosition.x}px`, 
+            top: `${currentPosition.y}px`, 
+            zIndex: mosquito.isSwatted ? 15 : 25,
+          },
+          onClick: () => { if (!mosquito.isSwatted) { onSwat(mosquito.id); } },
+          'aria-label': "蚊子", role: "button", tabIndex: 0
+        },
+          !mosquito.isSwatted ? liveMosquitoContent : swattedMosquitoContent
+        );
+      });
+
+      // --- Boss.tsx ---
+      const SCOLD_MESSAGES = [
+        (name) => `${name}, 搞快点!`, (_name) => "效率呢?!", (_name) => "时间不多了!",
+        (name) => `${name}, 就你这样还想加薪?`, (_name) => "我可盯着你呢!", (_name) => "deadline是第一生产力!",
+        (name) => `${name}! 你怎么写的这么慢!`, (name) => `你是猪吗, ${name}? 老板我都比你快!`,
+        (_name) => "快点快点，没时间了!", (name) => `${name}, 这进度也太慢了吧! 加班!`,
+        (_name) => "能不能行啊?! 不行换人!", (name) => `喂, ${name}, 醒醒! 还在摸鱼?`,
+        (_name) => "抓紧时间! 项目要紧!", (name) => `${name}, 你这速度，标书黄花菜都凉了!`,
+      ];
+      const BossComponent = ({ bossData, onClick, playerName }) => {
+        const [scoldMessage, setScoldMessage] = useState('');
+        const [_tick, setTick] = useState(0); 
+        const wasPreviouslyScoldingRef = useRef(false);
+        const initialEntryStylesAppliedRef = useRef(false);
+        const prevBossIdRef = useRef(null);
+
+        useEffect(() => {
+          if (bossData && prevBossIdRef.current !== bossData.id) {
+            initialEntryStylesAppliedRef.current = false;
+            prevBossIdRef.current = bossData.id;
+          }
+        }, [bossData]);
+
+        useEffect(() => {
+          if (!bossData.isVisible || bossData.clickedAway) {
+            initialEntryStylesAppliedRef.current = false; 
+            return;
+          }
+          const timerId = setInterval(() => {
+            const now = Date.now();
+            const currentlyInScoldWindow = now >= bossData.scoldStartTime && now < bossData.scoldEndTime;
+            if (currentlyInScoldWindow || (wasPreviouslyScoldingRef.current && !currentlyInScoldWindow) || (!wasPreviouslyScoldingRef.current && currentlyInScoldWindow)) {
+              setTick(t => t + 1);
+            }
+            if (now >= bossData.scoldEndTime) clearInterval(timerId);
+          }, 500); 
+          return () => clearInterval(timerId);
+        }, [bossData.isVisible, bossData.clickedAway, bossData.scoldStartTime, bossData.scoldEndTime]);
+
+        const isScoldingPeriodActive = bossData.isVisible && !bossData.clickedAway && Date.now() >= bossData.scoldStartTime && Date.now() < bossData.scoldEndTime;
+        useEffect(() => { wasPreviouslyScoldingRef.current = isScoldingPeriodActive; }, [isScoldingPeriodActive]);
+
+        useEffect(() => {
+          let messageChangeIntervalId;
+          if (isScoldingPeriodActive) {
+            const pickNewMessage = () => {
+              const randomScoldFn = SCOLD_MESSAGES[Math.floor(Math.random() * SCOLD_MESSAGES.length)];
+              setScoldMessage(randomScoldFn(playerName));
+            };
+            if (scoldMessage === '' || !wasPreviouslyScoldingRef.current) pickNewMessage();
+            messageChangeIntervalId = setInterval(() => {
+              if (Date.now() < bossData.scoldEndTime) pickNewMessage();
+              else clearInterval(messageChangeIntervalId);
+            }, 4000);
+          } else { setScoldMessage(''); }
+          return () => { if (messageChangeIntervalId) clearInterval(messageChangeIntervalId); };
+        }, [isScoldingPeriodActive, playerName, bossData.id, bossData.scoldEndTime]);
+
+        if (!bossData) return null;
+        
+        let determinedAnimationClass = '';
+        const appSaysBossShouldBeVisible = bossData.isVisible && !bossData.clickedAway;
+
+        if (bossData.clickedAway) { 
+          determinedAnimationClass = bossData.slideDirection === 'left' ? 'animate-boss-exit-left' : 'animate-boss-exit-right';
+          initialEntryStylesAppliedRef.current = false;
+        } else if (appSaysBossShouldBeVisible) { 
+          determinedAnimationClass = bossData.slideDirection === 'left' ? 'animate-boss-enter-left' : 'animate-boss-enter-right';
+        } else { 
+          determinedAnimationClass = bossData.slideDirection === 'left' ? 'animate-boss-exit-left' : 'animate-boss-exit-right';
+          initialEntryStylesAppliedRef.current = false;
+        }
+        
+        const style = {
+          top: `${bossData.y}px`, zIndex: 35,
+          transform: `translate(-50%, -50%) ${isScoldingPeriodActive ? 'rotate(1deg)' : ''}`,
+        };
+        const isTimeForInitialEnterStyle = appSaysBossShouldBeVisible && determinedAnimationClass.includes('enter') && !initialEntryStylesAppliedRef.current;
+        if (isTimeForInitialEnterStyle) {
+          style.opacity = 0; 
+          style.left = bossData.slideDirection === 'right' ? `calc(100% + 150px)` : `-150px`;
+          initialEntryStylesAppliedRef.current = true;
+        }
+        
+        return React.createElement('div', {
+          className: `absolute w-32 h-48 md:w-36 md:h-52 transform cursor-pointer p-2 ${isScoldingPeriodActive ? 'animate-boss-scold-shake' : ''} ${determinedAnimationClass}`,
+          style: style, onClick: () => onClick(bossData.id), role: "button", 'aria-label': "老板", tabIndex: 0
+        },
+          React.createElement('div', { className: "w-full h-full bg-slate-700 rounded-lg border-4 border-slate-800 shadow-2xl relative flex flex-col items-center p-2" },
+            React.createElement('div', { className: "w-16 h-16 bg-orange-300 rounded-full border-2 border-slate-900 mt-1" }),
+            React.createElement('div', { className: "w-4 h-10 bg-red-600 mt-1 rounded-sm transform skew-y-6 border border-black" }), 
+            React.createElement('div', { className: "w-24 h-20 bg-slate-600 rounded-md mt-[-10px] border-2 border-slate-900" }),
+            React.createElement('div', { className: "absolute -top-5 left-1/2 -translate-x-1/2 bg-black text-white px-3 py-1 text-sm rounded-full shadow-md" }, "老板"),
+            isScoldingPeriodActive && scoldMessage && React.createElement('div', { className: "absolute -top-20 left-1/2 -translate-x-1/2 min-w-[120px] max-w-[220px] bg-white p-2 rounded-lg shadow-xl border-2 border-gray-400 animate-speech-bubble-appear z-10" },
+              React.createElement('p', { className: "text-sm text-gray-800 font-semibold" }, scoldMessage),
+              React.createElement('div', { className: "absolute bottom-[-10px] left-1/2 -translate-x-1/2 w-0 h-0 border-l-[10px] border-l-transparent border-r-[10px] border-r-transparent border-t-[10px] border-t-white" })
+            )
+          )
+        );
+      };
+
+      // --- GameOverlay.tsx ---
+      const GameOverlay = ({ status, score, onSubmitSetup, onReturnToSetup }) => {
+        const [localName, setLocalName] = useState('');
+        const [localDifficulty, setLocalDifficulty] = useState(DifficultyLevel.Normal);
+        let title = ''; let content;
+        const difficultyOptions = [
+          { label: '简单', value: DifficultyLevel.Easy }, { label: '一般', value: DifficultyLevel.Normal }, { label: '困难', value: DifficultyLevel.Hard },
+        ];
+
+        if (status === GameStatus.Idle) {
+          title = '标书拯救者';
+          content = React.createElement(React.Fragment, null,
+            React.createElement('p', { className: "text-lg md:text-xl mb-8 text-slate-200 max-w-md" }, "帮助标书员在老板发现前完成标书！点击蚊子消灭它们，小心突然出现的老板！"),
+            React.createElement('button', { onClick: onReturnToSetup, className: "px-8 py-3 bg-gradient-to-r from-teal-500 to-cyan-600 hover:from-teal-600 hover:to-cyan-700 text-white font-semibold rounded-lg shadow-xl text-xl transform transition-transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-cyan-300" }, "开始游戏")
+          );
+        } else if (status === GameStatus.Setup) {
+          title = '游戏设置';
+          content = React.createElement('div', { className: "w-full max-w-sm" },
+            React.createElement('div', { className: "mb-6" },
+              React.createElement('label', { htmlFor: "playerName", className: "block text-slate-200 text-lg mb-2" }, "你的名字:"),
+              React.createElement('input', { type: "text", id: "playerName", value: localName, onChange: (e) => setLocalName(e.target.value), placeholder: "标书小能手", className: "w-full px-4 py-2 rounded-lg bg-slate-700 text-white border border-slate-500 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none" })
+            ),
+            React.createElement('div', { className: "mb-8" },
+              React.createElement('p', { className: "block text-slate-200 text-lg mb-3" }, "选择难度:"),
+              React.createElement('div', { className: "flex justify-center space-x-3" },
+                difficultyOptions.map(opt => React.createElement('button', { key: opt.value, onClick: () => setLocalDifficulty(opt.value), className: `px-4 py-2 rounded-lg font-medium transition-all ${localDifficulty === opt.value ? 'bg-sky-500 text-white ring-2 ring-sky-300 shadow-lg' : 'bg-slate-600 text-slate-300 hover:bg-slate-500'}`}, opt.label))
+              )
+            ),
+            React.createElement('button', { onClick: () => onSubmitSetup(localName, localDifficulty), className: "w-full px-8 py-3 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold rounded-lg shadow-xl text-xl transform transition-transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-emerald-300" }, "开始挑战!")
+          );
+        } else if (status === GameStatus.Won) {
+          title = '恭喜!';
+          content = React.createElement(React.Fragment, null,
+            React.createElement('p', { className: "text-lg md:text-xl mb-8 text-slate-200 max-w-md" }, `在规定时间内完成标书！你太棒了！最终得分: ${score}`),
+            React.createElement('button', { onClick: onReturnToSetup, className: "px-8 py-3 bg-gradient-to-r from-teal-500 to-cyan-600 hover:from-teal-600 hover:to-cyan-700 text-white font-semibold rounded-lg shadow-xl text-xl transform transition-transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-cyan-300" }, "再玩一次")
+          );
+        } else if (status === GameStatus.Lost) {
+          title = '任务失败!';
+          content = React.createElement(React.Fragment, null,
+            React.createElement('p', { className: "text-lg md:text-xl mb-8 text-slate-200 max-w-md" }, `你完蛋了，未在规定时间内完成标书，标书递交失败，老板正在赶往你的办公室！最终得分: ${score}`),
+            React.createElement('button', { onClick: onReturnToSetup, className: "px-8 py-3 bg-gradient-to-r from-teal-500 to-cyan-600 hover:from-teal-600 hover:to-cyan-700 text-white font-semibold rounded-lg shadow-xl text-xl transform transition-transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-cyan-300" }, "再玩一次")
+          );
+        }
+        return React.createElement('div', { className: "absolute inset-0 bg-black/80 backdrop-blur-lg flex flex-col items-center justify-center z-50 p-6 md:p-8 text-center" },
+          React.createElement('h1', { className: "text-4xl md:text-5xl font-bold mb-6 text-sky-400 drop-shadow-lg" }, title),
+          content
+        );
+      };
+      
+      // --- App.tsx ---
+      const App = () => {
+        const [gameStatus, setGameStatus] = useState(GameStatus.Idle);
+        const [playerName, setPlayerName] = useState('标书员');
+        const [difficulty, setDifficulty] = useState(DifficultyLevel.Normal);
+        const [progress, setProgress] = useState(0);
+        const [timeLeft, setTimeLeft] = useState(0); 
+        const [mosquitoes, setMosquitoes] = useState([]);
+        const [score, setScore] = useState(0);
+        const [isBittenCooldown, setIsBittenCooldown] = useState(0);
+        const [mosquitoSpawnInterval, setMosquitoSpawnInterval] = useState(0); 
+        const [boss, setBoss] = useState(null);
+
+        const settings = DIFFICULTY_SETTINGS[difficulty]; 
+        const TARGET_PROGRESS_PERCENT = 100;
+        const WRITER_POSITION = { x: 50, y: 60 };
+        const WRITER_HITBOX_RADIUS = 50;
+        const BITE_EFFECT_DURATION_MS = 2500;
+
+        const handleSubmitSetup = useCallback((name, selectedDifficulty) => {
+          setPlayerName(name || '标书员'); 
+          setDifficulty(selectedDifficulty);
+          setGameStatus(GameStatus.Playing); 
+        }, []);
+        
+        useEffect(() => {
+          if (gameStatus === GameStatus.Playing) {
+            const currentSettings = DIFFICULTY_SETTINGS[difficulty];
+            setProgress(0);
+            setTimeLeft(currentSettings.initialTime);
+            setMosquitoes([]);
+            setScore(0);
+            setIsBittenCooldown(0);
+            setMosquitoSpawnInterval(currentSettings.mosquitoSpawnInitial);
+            setBoss(null);
+          }
+        }, [gameStatus, difficulty]);
+
+        const handleReturnToSetup = useCallback(() => setGameStatus(GameStatus.Setup), []);
+
+        useEffect(() => {
+          if (gameStatus !== GameStatus.Playing) return;
+          if (timeLeft <= 0) { setGameStatus(GameStatus.Lost); return; }
+          const timerId = setInterval(() => setTimeLeft(prev => prev - 1), 1000);
+          return () => clearInterval(timerId);
+        }, [gameStatus, timeLeft]);
+
+        useEffect(() => {
+          if (gameStatus !== GameStatus.Playing) return;
+          if (progress >= TARGET_PROGRESS_PERCENT) { setGameStatus(GameStatus.Won); return; }
+          const progressIntervalId = setInterval(() => {
+            setProgress(prev => {
+              let currentRate = settings.baseProgress / 10; 
+              if (Date.now() < isBittenCooldown) currentRate *= settings.biteSlowdown;
+              if (boss && boss.isVisible && !boss.clickedAway && Date.now() > boss.scoldStartTime && Date.now() < boss.scoldEndTime) {
+                currentRate *= settings.bossScoldFactor;
+              }
+              const newCalculatedProgress = Math.min(TARGET_PROGRESS_PERCENT, prev + currentRate);
+              return Math.max(prev, newCalculatedProgress);
+            });
+          }, 100);
+          return () => clearInterval(progressIntervalId);
+        }, [gameStatus, progress, isBittenCooldown, boss, settings]);
+
+        useEffect(() => {
+          if (gameStatus !== GameStatus.Playing) return;
+          const spawnId = setInterval(() => {
+            const screenWidth = window.innerWidth; const screenHeight = window.innerHeight;
+            let startX, startY; const edge = Math.floor(Math.random() * 4);
+            switch (edge) {
+              case 0: startX = Math.random() * screenWidth; startY = -30; break;
+              case 1: startX = screenWidth + 30; startY = Math.random() * screenHeight; break;
+              case 2: startX = Math.random() * screenWidth; startY = screenHeight + 30; break;
+              default: startX = -30; startY = Math.random() * screenHeight; break;
+            }
+            setMosquitoes(prev => [...prev, { id: Date.now(), x: startX, y: startY, isSwatted: false, spawnTime: Date.now() }]);
+            setMosquitoSpawnInterval(prevInterval => Math.max(settings.mosquitoSpawnMin, prevInterval - 50));
+          }, mosquitoSpawnInterval);
+          return () => clearInterval(spawnId);
+        }, [gameStatus, mosquitoSpawnInterval, settings.mosquitoSpawnMin]);
+
+        useEffect(() => {
+          if (gameStatus !== GameStatus.Playing) return;
+          const bossInterval = setInterval(() => {
+            if (!boss && Math.random() < settings.bossSpawnChance) {
+              const screenHeight = window.innerHeight;
+              const slideDirection = Math.random() < 0.5 ? 'left' : 'right';
+              setBoss({
+                id: Date.now(), x: 0, y: screenHeight * 0.25, isVisible: true, isScolding: false, 
+                scoldStartTime: Date.now() + settings.bossScoldStartDelay,
+                scoldEndTime: Date.now() + settings.bossScoldStartDelay + settings.bossDuration,
+                clickedAway: false, slideDirection: slideDirection,
+              });
+            } else if (boss && boss.isVisible && !boss.clickedAway && Date.now() > boss.scoldEndTime) {
+              setBoss(b => b ? { ...b, isVisible: false } : null); 
+              setTimeout(() => setBoss(null), 1000); 
+            }
+          }, 3000);
+          return () => clearInterval(bossInterval);
+        }, [gameStatus, boss, settings]);
+
+        const handleMosquitoSwat = useCallback((id) => {
+          setMosquitoes(prev => prev.map(m => (m.id === id ? { ...m, isSwatted: true } : m)));
+          setScore(s => s + 1);
+          setTimeout(() => setMosquitoes(prev => prev.filter(m => m.id !== id)), 300);
+        }, []);
+
+        const handleMosquitoReachTarget = useCallback((id) => {
+          setMosquitoes(prev => prev.filter(m => m.id !== id));
+          setIsBittenCooldown(Date.now() + BITE_EFFECT_DURATION_MS);
+        }, []);
+
+        const handleBossClick = useCallback((id) => {
+          setBoss(b => b && b.id === id ? { ...b, clickedAway: true, isVisible: false, isScolding: false } : b);
+          setScore(s => s + 5); 
+          setTimeout(() => setBoss(null), 1000); 
+        }, []);
+
+        const writerActualPos = { x: window.innerWidth * (WRITER_POSITION.x / 100), y: window.innerHeight * (WRITER_POSITION.y / 100) };
+
+        return React.createElement('div', { className: "relative w-screen h-screen overflow-hidden bg-gradient-to-br from-slate-200 to-slate-400 select-none" },
+          gameStatus === GameStatus.Playing && React.createElement(React.Fragment, null,
+            React.createElement('div', { className: "absolute top-4 left-4 right-4 p-4 bg-slate-800/70 backdrop-blur-md rounded-lg shadow-xl z-30" },
+              React.createElement('div', { className: "flex justify-between items-center text-lg md:text-xl" },
+                React.createElement(TimerDisplay, { timeLeft: timeLeft }),
+                React.createElement('div', { className: "text-amber-300" }, `分数: ${score}`)
+              ),
+              React.createElement(ProgressBar, { progress: progress })
+            ),
+            React.createElement(TenderWriter, { playerName: playerName, position: WRITER_POSITION, isBitten: Date.now() < isBittenCooldown, isTyping: progress < TARGET_PROGRESS_PERCENT }),
+            mosquitoes.map(mosquito => React.createElement(MosquitoComponent, { key: mosquito.id, mosquito: mosquito, onSwat: handleMosquitoSwat, onReachTarget: handleMosquitoReachTarget, targetPosition: writerActualPos, targetRadius: WRITER_HITBOX_RADIUS, speed: settings.mosquitoSpeed })),
+            boss && React.createElement(BossComponent, { bossData: boss, onClick: handleBossClick, playerName: playerName })
+          ),
+          (gameStatus === GameStatus.Idle || gameStatus === GameStatus.Setup || gameStatus === GameStatus.Won || gameStatus === GameStatus.Lost) && 
+            React.createElement(GameOverlay, { status: gameStatus, score: score, onSubmitSetup: handleSubmitSetup, onReturnToSetup: handleReturnToSetup })
+        );
+      };
+
+      // --- From index.tsx (mounting logic) ---
+      const rootElement = document.getElementById('root');
+      if (!rootElement) {
+        throw new Error("Could not find root element to mount to");
+      }
+      const root = ReactDOM.createRoot(rootElement);
+      root.render(
+        React.createElement(React.StrictMode, null, 
+          React.createElement(App, null)
+        )
+      );
+    </script>
+<script type="module" src="/index.tsx"></script>
+</body>
+</html>
